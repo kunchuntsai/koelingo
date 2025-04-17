@@ -1,0 +1,72 @@
+# Build directories
+build/
+out/
+dist/
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
+*.user
+*.swp
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+
+# Generated files
+moc_*.cc
+ui_*.h
+qrc_*.cc
+docs/html/
+
+# Model files (potentially large)
+resources/models/*
+!resources/models/.gitkeep
+
+# Downloaded models
+models/
+
+# macOS specific
+.DS_Store
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# Python specific
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Local development files
+.env
+.env.local
+
+# Jupyter notebooks
+.ipynb_checkpoints
+
+# Log files
+*.log

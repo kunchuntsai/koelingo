@@ -1,0 +1,4 @@
+PySide6>=6.4.0
+numpy>=1.24.0
+pyaudio>=0.2.13
+termcolor>=2.2.0

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "koelingo"
+version = "0.1.0"
+description = "Real-time Japanese speech recognition and translation application"
+authors = ["KoeLingo Team"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pyside6 = "^6.5.0"
+pyaudio = "^0.2.13"
+numpy = "^1.24.0"
+pybind11 = "^2.10.0"
+whisper = "^1.1.10"
+ctranslate2 = "^3.12.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.3.1"
+pytest-qt = "^4.2.0"
+black = "^23.3.0"
+flake8 = "^6.0.0"
+
+[tool.poetry.scripts]
+koelingo = "koelingo.main:main" 

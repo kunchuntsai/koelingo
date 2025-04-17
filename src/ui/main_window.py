@@ -3,12 +3,78 @@ Main window for the KoeLingo application.
 """
 
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                              QLabel, QPushButton, QTextEdit, QSplitter, QComboBox)
+                              QLabel, QPushButton, QTextEdit, QSplitter, QComboBox,
+                              QProgressBar)
 from PySide6.QtCore import Qt, Slot, Signal, QSize, qVersion, QRect
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap, QPainter, QBrush
 
 from .audio_visualizer import AudioVisualizer
 from .resources import AppIcons
+
+
+class ConfidenceIndicator(QProgressBar):
+    """
+    A progress bar that indicates the confidence level of speech recognition.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setRange(0, 100)
+        self.setValue(0)
+        self.setTextVisible(False)
+        self.setFixedHeight(5)
+        self.setStyleSheet("""
+            QProgressBar {
+                background-color: #444444;
+                border-radius: 2px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 2px;
+            }
+        """)
+
+    def set_confidence(self, confidence):
+        """Set the confidence level (0-100)"""
+        self.setValue(int(confidence * 100))
+
+        # Change color based on confidence level
+        if confidence >= 0.75:
+            self.setStyleSheet("""
+                QProgressBar {
+                    background-color: #444444;
+                    border-radius: 2px;
+                    border: none;
+                }
+                QProgressBar::chunk {
+                    background-color: #4CAF50;  /* Green for high confidence */
+                    border-radius: 2px;
+                }
+            """)
+        elif confidence >= 0.5:
+            self.setStyleSheet("""
+                QProgressBar {
+                    background-color: #444444;
+                    border-radius: 2px;
+                    border: none;
+                }
+                QProgressBar::chunk {
+                    background-color: #FFC107;  /* Amber for medium confidence */
+                    border-radius: 2px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QProgressBar {
+                    background-color: #444444;
+                    border-radius: 2px;
+                    border: none;
+                }
+                QProgressBar::chunk {
+                    background-color: #F44336;  /* Red for low confidence */
+                    border-radius: 2px;
+                }
+            """)
 
 
 class MainWindow(QMainWindow):
@@ -54,6 +120,9 @@ class MainWindow(QMainWindow):
 
         # Connect signals and slots
         self._connect_signals()
+
+        # Initialize confidence indicator
+        self.confidence_indicator = None
 
     def _set_dark_theme(self):
         """Set dark theme for the application."""
@@ -165,20 +234,28 @@ class MainWindow(QMainWindow):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(10)
 
-        # Text input
-        self.input_text = QTextEdit()
-        self.input_text.setPlaceholderText("Enter text to translate...")
-        self.input_text.setMinimumHeight(150)
+        # Create label for Japanese text
+        japanese_label = QLabel("Japanese (Detected Speech)")
+        japanese_label.setStyleSheet("font-weight: bold;")
 
-        # Source language selection
+        # Text input (now used for detected Japanese speech)
+        self.input_text = QTextEdit()
+        self.input_text.setPlaceholderText("Japanese speech will appear here...")
+        self.input_text.setMinimumHeight(150)
+        self.input_text.setReadOnly(True)  # Make it read-only since it's populated by STT
+
+        # Add confidence indicator
+        self.confidence_indicator = ConfidenceIndicator()
+
+        # Source language is set to Japanese and non-editable
         self.source_language = QComboBox()
         self.source_language.addItem("Japanese")
-        self.source_language.addItem("English")
-        self.source_language.addItem("Chinese")
-        self.source_language.addItem("Korean")
-        self.source_language.setCurrentIndex(0)
+        self.source_language.setEnabled(False)  # Disable editing as Japanese is fixed
 
+        # Add to layout
+        input_layout.addWidget(japanese_label)
         input_layout.addWidget(self.input_text)
+        input_layout.addWidget(self.confidence_indicator)
         input_layout.addWidget(self.source_language)
 
         self.main_layout.addWidget(input_container)
@@ -288,26 +365,30 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(control_panel)
 
     def _create_output_area(self):
-        """Create the output text area with target language selection."""
-        # Output text area and language selection container
+        """Create the output text area."""
+        # Output text area container
         output_container = QWidget()
         output_layout = QVBoxLayout(output_container)
         output_layout.setContentsMargins(0, 0, 0, 0)
         output_layout.setSpacing(10)
 
+        # Create label for English translation
+        english_label = QLabel("English (Translation)")
+        english_label.setStyleSheet("font-weight: bold;")
+
         # Output text
         self.output_text = QTextEdit()
-        self.output_text.setReadOnly(True)
+        self.output_text.setPlaceholderText("Translation will appear here...")
         self.output_text.setMinimumHeight(150)
+        self.output_text.setReadOnly(True)  # Make it read-only
 
-        # Target language selection
+        # Target language fixed as English
         self.target_language = QComboBox()
         self.target_language.addItem("English")
-        self.target_language.addItem("Japanese")
-        self.target_language.addItem("Chinese")
-        self.target_language.addItem("Korean")
-        self.target_language.setCurrentIndex(0)
+        self.target_language.setEnabled(False)  # Disable editing as English is fixed
 
+        # Add to layout
+        output_layout.addWidget(english_label)
         output_layout.addWidget(self.output_text)
         output_layout.addWidget(self.target_language)
 
@@ -380,15 +461,23 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'audio_visualizer'):
             self.audio_visualizer.update_level(level)
 
-    @Slot(str)
-    def update_input_text(self, text):
+    @Slot(str, float)
+    def update_input_text(self, text, confidence=0.7):
         """
-        Update the input text.
+        Update the input text area with recognized speech.
 
         Args:
-            text (str): The text to display in the input area
+            text: The recognized Japanese text
+            confidence: Confidence level (0.0-1.0) of the recognition
         """
-        self.input_text.setText(text)
+        self.input_text.setPlainText(text)
+
+        # Update confidence indicator
+        if self.confidence_indicator:
+            self.confidence_indicator.set_confidence(confidence)
+
+        # Also update the status bar
+        self.statusBar().showMessage(f"Japanese speech recognized (confidence: {int(confidence * 100)}%)")
 
     @Slot(str)
     def update_output_text(self, text):

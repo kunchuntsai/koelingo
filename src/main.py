@@ -15,6 +15,8 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from PySide6.QtWidgets import QApplication
 
 from src.ui.main_window import MainWindow
+from src.audio.audio_capture import AudioCapture
+from src.stt import WhisperSTT
 
 
 class AudioInputHandler(QObject):
@@ -22,23 +24,30 @@ class AudioInputHandler(QObject):
 
     # Signal to emit when audio level changes
     audio_level_changed = Signal(float)
-    # Signal to emit when speech is detected
-    speech_detected = Signal(str)
+    # Signal to emit when speech is detected (text, confidence)
+    speech_detected = Signal(str, float)
     # Signal to emit when translation is completed
-    translation_completed = Signal(str)
+    translation_completed = Signal(str, str)
 
     def __init__(self):
         super().__init__()
-        self.audio = pyaudio.PyAudio()
-        self.stream = None
-        self.is_recording = False
-        self.frames = []
 
-        # Audio parameters
-        self.format = pyaudio.paInt16
-        self.channels = 1
-        self.rate = 44100
-        self.chunk = 1024
+        # Initialize audio capture
+        self.audio_capture = AudioCapture(
+            sample_rate=16000,  # Whisper requires 16kHz
+            chunk_size=1024,
+            channels=1
+        )
+
+        # Initialize Whisper STT
+        self.stt = WhisperSTT(
+            model_size="tiny",  # Start with tiny model for speed
+            device="cpu",       # Default to CPU processing
+            language="ja"       # Japanese language
+        )
+
+        self.is_recording = False
+        self.translation_thread = None
 
     def start_recording(self):
         """Start recording audio from the microphone."""
@@ -46,21 +55,10 @@ class AudioInputHandler(QObject):
             return
 
         self.is_recording = True
-        self.frames = []
 
-        def callback(in_data, frame_count, time_info, status):
-            if self.is_recording:
-                self.frames.append(in_data)
-                self.process_audio(in_data)
-            return (in_data, pyaudio.paContinue)
-
-        self.stream = self.audio.open(
-            format=self.format,
-            channels=self.channels,
-            rate=self.rate,
-            input=True,
-            frames_per_buffer=self.chunk,
-            stream_callback=callback
+        # Start audio capture with level callback
+        self.audio_capture.start_recording(
+            audio_level_callback=self._audio_level_callback
         )
 
     def stop_recording(self):
@@ -69,80 +67,84 @@ class AudioInputHandler(QObject):
             return
 
         self.is_recording = False
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-            self.stream = None
 
-            # Simulate speech recognition and translation
-            # In a real app, this would call actual STT and translation services
-            self._simulate_processing()
+        # Stop audio capture
+        self.audio_capture.stop_recording()
 
-    def process_audio(self, audio_data):
-        """Process audio data to calculate audio level."""
-        # Convert bytes to numpy array
-        data = np.frombuffer(audio_data, dtype=np.int16)
+        # Process the captured audio for STT
+        self._process_captured_audio()
 
-        # Calculate RMS to get audio level
-        rms = np.sqrt(np.mean(np.square(data.astype(np.float32))))
-
-        # Normalize to 0-1 range (assuming 16-bit audio)
-        # Increase sensitivity by applying a much stronger scaling
-        # to match the visualizer demo's responsiveness
-        normalized = min(1.0, rms / 32768.0)
-
-        # Apply a much stronger non-linear scaling to increase responsiveness
-        # This will make the meter behave more like the demo example
-        if normalized > 0.0005:  # Lower threshold to catch quieter sounds
-            # Apply cubic root scaling to dramatically boost lower levels
-            # and add a significant base level so it's always somewhat visible
-            level = min(1.0, 0.2 + (normalized ** 0.33) * 2.0)
-
-            # Add some artificial variation to make it more visually dynamic
-            # Only if we're not at extremes of the range
-            if 0.3 < level < 0.9:
-                # Add a small random variation (±10%)
-                variation = (np.random.random() - 0.5) * 0.2
-                level = max(0.2, min(1.0, level + level * variation))
-        else:
-            # Even for very quiet sounds, show a minimal level
-            level = 0.1
-
-        # Emit signal with the audio level
+    def _audio_level_callback(self, level):
+        """Callback for audio level updates."""
         self.audio_level_changed.emit(level)
 
-    def _simulate_processing(self):
-        """Simulate processing for demo purposes."""
-        # This would be replaced with actual STT and translation calls
+    def _process_captured_audio(self):
+        """Process the captured audio for speech recognition."""
+        # Get audio data as numpy array
+        audio_data = self.audio_capture.get_buffer_as_numpy()
+
+        if len(audio_data) == 0:
+            print("No audio data captured")
+            return
+
+        # Transcribe using Whisper STT
+        self.stt.transcribe_audio(
+            audio_data=audio_data,
+            callback=self._on_transcription_complete
+        )
+
+    def _on_transcription_complete(self, transcription, confidence=0.7):
+        """
+        Callback when transcription is complete.
+
+        Args:
+            transcription: The transcribed text
+            confidence: Confidence score from 0.0 to 1.0 (default: 0.7)
+        """
+        if not transcription:
+            return
+
+        # Emit signal with recognized Japanese text and confidence
+        self.speech_detected.emit(transcription, confidence)
+
+        # Simulate translation for now (will be replaced with actual translation later)
+        self._simulate_translation(transcription)
+
+    def _simulate_translation(self, japanese_text):
+        """
+        Temporarily simulate translation until translation module is implemented.
+
+        This will be replaced with actual translation in Phase 4.
+        """
         def process():
-            # Simulate STT (Speech-to-Text)
-            time.sleep(1)  # Simulate processing time
-            if self.is_recording:
-                return  # Cancel if recording started again
+            # Simulate processing time
+            time.sleep(1)
 
-            # Example Japanese text (would come from STT service)
-            japanese_text = "で、えっと。お願いするかもしれないけど、基本的に返信も交えた上でタグ付けていうのは管理して行きたいなと思っております。"
-            self.speech_detected.emit(japanese_text)
+            # Example translation (fixed for demo purposes)
+            if "お願い" in japanese_text:
+                english_text = "I would like to ask for your help."
+            elif "こんにちは" in japanese_text:
+                english_text = "Hello."
+            elif "ありがとう" in japanese_text:
+                english_text = "Thank you."
+            else:
+                english_text = "This is a simulated translation. Real translation will be implemented in Phase 4."
 
-            # Simulate translation
-            time.sleep(1)  # Simulate processing time
-            if self.is_recording:
-                return  # Cancel if recording started again
-
-            # Example translation (would come from translation service)
-            english_text = "So, uh. I may ask you to do so, but I would like to manage the tagging with basic replies."
-            self.translation_completed.emit(english_text)
+            # Emit signal with original Japanese and translated English text
+            self.translation_completed.emit(japanese_text, english_text)
 
         # Run in a separate thread to avoid freezing the UI
-        thread = threading.Thread(target=process)
-        thread.daemon = True
-        thread.start()
+        self.translation_thread = threading.Thread(target=process)
+        self.translation_thread.daemon = True
+        self.translation_thread.start()
 
     def cleanup(self):
         """Clean up audio resources."""
         self.stop_recording()
-        if self.audio:
-            self.audio.terminate()
+
+        # Unload STT model to free memory
+        if hasattr(self, 'stt') and self.stt:
+            self.stt.unload_model()
 
 
 def main():

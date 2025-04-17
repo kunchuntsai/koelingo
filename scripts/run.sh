@@ -20,6 +20,9 @@ parse_args() {
     BUILD=0
     TEST_MODULE=""
     VERBOSE=0
+    RUN_STT_TESTS=0
+    RUN_STT_PERF_TESTS=0
+    RUN_INTEGRATION_TESTS=0
 
     # Parse command-line arguments
     while [[ $# -gt 0 ]]; do
@@ -39,6 +42,28 @@ parse_args() {
             --audio)
                 RUN_TESTS=1
                 TEST_MODULE="audio"
+                shift
+                ;;
+            --stt)
+                RUN_TESTS=1
+                RUN_STT_TESTS=1
+                shift
+                ;;
+            --stt-perf)
+                RUN_TESTS=1
+                RUN_STT_PERF_TESTS=1
+                shift
+                ;;
+            --integration)
+                RUN_TESTS=1
+                RUN_INTEGRATION_TESTS=1
+                shift
+                ;;
+            --all-stt)
+                RUN_TESTS=1
+                RUN_STT_TESTS=1
+                RUN_STT_PERF_TESTS=1
+                RUN_INTEGRATION_TESTS=1
                 shift
                 ;;
             --clean)
@@ -61,6 +86,10 @@ parse_args() {
                 echo "  --tests     Run tests instead of the application"
                 echo "              (can be followed by a specific module name)"
                 echo "  --audio     Run audio tests specifically"
+                echo "  --stt       Run speech-to-text tests"
+                echo "  --stt-perf  Run STT performance tests"
+                echo "  --integration Run integration tests (audio to STT)"
+                echo "  --all-stt   Run all STT-related tests"
                 echo "  --clean     Clean build before running"
                 echo "  --build     Build before running"
                 echo "  --verbose   Verbose output in tests"
@@ -148,11 +177,26 @@ run_tests() {
         VERBOSITY="--verbose"
     fi
 
+    if [ $RUN_STT_TESTS -eq 1 ]; then
+        echo "Running STT tests..."
+        python -m tests.run_tests stt $VERBOSITY
+    fi
+
+    if [ $RUN_STT_PERF_TESTS -eq 1 ]; then
+        echo "Running STT performance tests..."
+        python -m tests.run_tests stt.test_performance $VERBOSITY
+    fi
+
+    if [ $RUN_INTEGRATION_TESTS -eq 1 ]; then
+        echo "Running integration tests (audio to STT)..."
+        python -m tests.run_tests integration.test_audio_stt $VERBOSITY
+    fi
+
     if [ -n "$TEST_MODULE" ]; then
         echo "Running tests in module: $TEST_MODULE..."
         # Use our custom test runner
         python -m tests.run_tests $TEST_MODULE $VERBOSITY
-    else
+    elif [ $RUN_STT_TESTS -eq 0 ] && [ $RUN_STT_PERF_TESTS -eq 0 ] && [ $RUN_INTEGRATION_TESTS -eq 0 ]; then
         echo "Running all tests..."
         # Use our custom test runner for all tests
         python -m tests.run_tests $VERBOSITY

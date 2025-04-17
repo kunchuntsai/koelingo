@@ -77,6 +77,10 @@ setup_venv() {
     echo "Installing Python dependencies..."
     pip install -r requirements.txt
 
+    # Install OpenAI Whisper from GitHub
+    echo "Installing OpenAI Whisper from GitHub..."
+    pip install git+https://github.com/openai/whisper.git
+
     echo "Python environment setup complete."
     echo
     echo "To activate the virtual environment in the future, run:"

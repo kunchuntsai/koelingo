@@ -2,3 +2,6 @@ PySide6>=6.4.0
 numpy>=1.24.0
 pyaudio>=0.2.13
 termcolor>=2.2.0
+psutil>=5.9.0
+# When installing with pip directly, use:
+# pip install -r requirements.txt && pip install git+https://github.com/openai/whisper.git

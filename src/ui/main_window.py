@@ -488,6 +488,19 @@ class MainWindow(QMainWindow):
             text (str): The text to display in the output area
         """
         self.output_text.setText(text)
+        
+    @Slot(bool)
+    def update_processing_status(self, is_processing):
+        """
+        Update the UI based on processing status.
+        
+        Args:
+            is_processing (bool): Whether audio processing is in progress
+        """
+        if is_processing:
+            self.statusBar().showMessage("Processing audio...")
+        else:
+            self.statusBar().showMessage("Ready")
 
 
 # Example usage

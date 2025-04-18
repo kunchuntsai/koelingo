@@ -28,6 +28,8 @@ class AudioInputHandler(QObject):
     speech_detected = Signal(str, float)
     # Signal to emit when translation is completed
     translation_completed = Signal(str, str)
+    # Signal to emit when processing status changes
+    processing_status_changed = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -43,11 +45,16 @@ class AudioInputHandler(QObject):
         self.stt = WhisperSTT(
             model_size="tiny",  # Start with tiny model for speed
             device="cpu",       # Default to CPU processing
-            language="ja"       # Japanese language
+            language="ja",      # Japanese language
+            use_ctranslate2=True  # Use optimized CTranslate2 if available
         )
 
         self.is_recording = False
         self.translation_thread = None
+        
+        # Settings for continuous processing
+        self.continuous_mode = True
+        self.is_processing = False
 
     def start_recording(self):
         """Start recording audio from the microphone."""
@@ -56,10 +63,23 @@ class AudioInputHandler(QObject):
 
         self.is_recording = True
 
-        # Start audio capture with level callback
-        self.audio_capture.start_recording(
-            audio_level_callback=self._audio_level_callback
-        )
+        if self.continuous_mode:
+            # Start continuous processing mode
+            self.stt.start_continuous_processing(
+                callback=self._on_transcription_complete
+            )
+            
+            # Start audio capture with level callback and continuous processing
+            self.audio_capture.start_recording(
+                audio_level_callback=self._audio_level_callback,
+                chunk_processing_callback=self._on_audio_chunk_ready,
+                continuous_mode=True
+            )
+        else:
+            # Start non-continuous mode (old behavior)
+            self.audio_capture.start_recording(
+                audio_level_callback=self._audio_level_callback
+            )
 
     def stop_recording(self):
         """Stop recording audio."""
@@ -70,13 +90,36 @@ class AudioInputHandler(QObject):
 
         # Stop audio capture
         self.audio_capture.stop_recording()
-
-        # Process the captured audio for STT
-        self._process_captured_audio()
+        
+        if self.continuous_mode:
+            # Stop continuous processing
+            self.stt.stop_continuous_processing()
+        else:
+            # Process the captured audio for STT (non-continuous mode)
+            self._process_captured_audio()
 
     def _audio_level_callback(self, level):
         """Callback for audio level updates."""
         self.audio_level_changed.emit(level)
+        
+    def _on_audio_chunk_ready(self, audio_chunk):
+        """
+        Callback when an audio chunk is ready for processing in continuous mode.
+        
+        Args:
+            audio_chunk: The audio data as numpy array
+        """
+        if not self.is_recording:
+            return
+            
+        # Send chunk to STT for processing
+        self.stt.process_audio_chunk(audio_chunk)
+        
+        # Update processing status
+        processing_status = self.stt.is_processing()
+        if processing_status != self.is_processing:
+            self.is_processing = processing_status
+            self.processing_status_changed.emit(self.is_processing)
 
     def _process_captured_audio(self):
         """Process the captured audio for speech recognition."""
@@ -86,6 +129,10 @@ class AudioInputHandler(QObject):
         if len(audio_data) == 0:
             print("No audio data captured")
             return
+
+        # Update processing status
+        self.is_processing = True
+        self.processing_status_changed.emit(True)
 
         # Transcribe using Whisper STT
         self.stt.transcribe_audio(
@@ -103,6 +150,11 @@ class AudioInputHandler(QObject):
         """
         if not transcription:
             return
+            
+        # Update processing status for non-continuous mode
+        if not self.continuous_mode:
+            self.is_processing = False
+            self.processing_status_changed.emit(False)
 
         # Emit signal with recognized Japanese text and confidence
         self.speech_detected.emit(transcription, confidence)
@@ -160,6 +212,7 @@ def main():
     audio_handler.speech_detected.connect(window.update_input_text)
     audio_handler.translation_completed.connect(window.update_output_text)
     audio_handler.audio_level_changed.connect(window.update_audio_level)
+    audio_handler.processing_status_changed.connect(window.update_processing_status)
 
     window.show()
 

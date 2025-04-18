@@ -56,13 +56,30 @@ class AudioCapture:
 
         # Selected device index
         self.selected_device_index = None
+        
+        # Continuous processing settings
+        self.continuous_mode = False
+        self.silence_threshold = 0.02  # Level below which is considered silence
+        self.silence_chunks = 15  # Number of chunks of silence before processing
+        self.current_silence_count = 0
+        self.chunk_processing_callback = None
+        self.min_speech_chunks = 10  # Minimum chunks to consider as valid speech
+        self.speech_detected = False
+        self.buffered_chunks_for_processing = []
+        self.continuous_chunks_to_process = 32  # Number of chunks to process at once
+        self.speech_energy_threshold = 0.02  # Energy threshold to detect speech
 
-    def start_recording(self, audio_level_callback: Optional[Callable[[float], None]] = None) -> bool:
+    def start_recording(self, 
+                        audio_level_callback: Optional[Callable[[float], None]] = None,
+                        chunk_processing_callback: Optional[Callable[[np.ndarray], None]] = None,
+                        continuous_mode: bool = False) -> bool:
         """
         Start recording audio from the microphone.
 
         Args:
             audio_level_callback: Optional callback function to receive audio level updates
+            chunk_processing_callback: Optional callback for processing chunks in continuous mode
+            continuous_mode: If True, enables continuous chunk processing
 
         Returns:
             bool: True if recording started successfully, False otherwise
@@ -72,6 +89,11 @@ class AudioCapture:
 
         try:
             self.audio_level_callback = audio_level_callback
+            self.chunk_processing_callback = chunk_processing_callback
+            self.continuous_mode = continuous_mode
+            self.speech_detected = False
+            self.current_silence_count = 0
+            self.buffered_chunks_for_processing = []
 
             # Use selected device if specified
             input_device = None
@@ -146,6 +168,10 @@ class AudioCapture:
 
                 # Call the callback with the audio level
                 self.audio_level_callback(audio_level)
+                
+                # Handle continuous mode processing if enabled
+                if self.continuous_mode and self.chunk_processing_callback:
+                    self._handle_continuous_processing(audio_array, audio_level)
 
             # Sleep to avoid using too much CPU
             time.sleep(0.05)
@@ -300,6 +326,64 @@ class AudioCapture:
         self.stop_recording()
         if self.audio:
             self.audio.terminate()
+
+    def _handle_continuous_processing(self, audio_array: np.ndarray, level: float) -> None:
+        """
+        Handle continuous processing of audio in real-time.
+        
+        This method implements a simple voice activity detection to determine
+        when to process chunks for speech recognition.
+        
+        Args:
+            audio_array: The latest audio data as a numpy array
+            level: The calculated audio level (0.0-1.0)
+        """
+        # Add the current chunk to our buffer for processing
+        self.buffered_chunks_for_processing.append(audio_array)
+        
+        # Determine if this is speech or silence
+        is_silence = level < self.silence_threshold
+        
+        if not self.speech_detected:
+            # If we're not currently tracking speech and this isn't silence,
+            # start tracking potential speech
+            if not is_silence:
+                self.speech_detected = True
+                self.current_silence_count = 0
+        else:
+            # If we are tracking speech
+            if is_silence:
+                # Count silent chunks
+                self.current_silence_count += 1
+                
+                # If we've reached our threshold of silent chunks after speech,
+                # process the buffered audio
+                if self.current_silence_count >= self.silence_chunks:
+                    self._process_speech_segment()
+            else:
+                # Reset silence counter as we're still getting speech
+                self.current_silence_count = 0
+                
+        # Cap the buffer size to prevent using too much memory
+        if len(self.buffered_chunks_for_processing) > 3 * self.continuous_chunks_to_process:
+            # Every second or so, process what we have if it's getting too large
+            self._process_speech_segment()
+                
+    def _process_speech_segment(self) -> None:
+        """Process a segment of speech detected in continuous mode."""
+        # Only process if we have enough chunks to be meaningful
+        if len(self.buffered_chunks_for_processing) >= self.min_speech_chunks:
+            # Combine all chunks into a single array
+            combined_audio = np.concatenate(self.buffered_chunks_for_processing)
+            
+            # Send to callback for processing (likely STT)
+            if self.chunk_processing_callback:
+                self.chunk_processing_callback(combined_audio)
+        
+        # Reset for next segment
+        self.buffered_chunks_for_processing = []
+        self.speech_detected = False
+        self.current_silence_count = 0
 
 
 # Example callback function

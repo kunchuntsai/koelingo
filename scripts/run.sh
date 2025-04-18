@@ -23,6 +23,9 @@ parse_args() {
     RUN_STT_TESTS=0
     RUN_STT_PERF_TESTS=0
     RUN_INTEGRATION_TESTS=0
+    RUN_REALTIME_TESTS=0
+    RUN_STABILITY_TEST=0
+    STABILITY_DURATION=60
 
     # Parse command-line arguments
     while [[ $# -gt 0 ]]; do
@@ -66,6 +69,20 @@ parse_args() {
                 RUN_INTEGRATION_TESTS=1
                 shift
                 ;;
+            --realtime)
+                RUN_TESTS=1
+                RUN_REALTIME_TESTS=1
+                shift
+                ;;
+            --stability)
+                RUN_TESTS=1
+                RUN_STABILITY_TEST=1
+                if [[ "$2" != --* && "$2" != "" && "$2" =~ ^[0-9]+$ ]]; then
+                    STABILITY_DURATION="$2"
+                    shift
+                fi
+                shift
+                ;;
             --clean)
                 CLEAN_BUILD=1
                 BUILD=1
@@ -90,6 +107,8 @@ parse_args() {
                 echo "  --stt-perf  Run STT performance tests"
                 echo "  --integration Run integration tests (audio to STT)"
                 echo "  --all-stt   Run all STT-related tests"
+                echo "  --realtime  Run real-time processing tests"
+                echo "  --stability [seconds]  Run stability test for specified duration (default: 60s)"
                 echo "  --clean     Clean build before running"
                 echo "  --build     Build before running"
                 echo "  --verbose   Verbose output in tests"
@@ -137,6 +156,23 @@ activate_venv() {
     fi
 }
 
+# Verify test dependencies
+verify_dependencies() {
+    # Check for matplotlib if running stability tests
+    if [ $RUN_STABILITY_TEST -eq 1 ]; then
+        if ! python -c "import matplotlib" &>/dev/null; then
+            echo "Installing matplotlib..."
+            pip install matplotlib
+        fi
+    fi
+    
+    # Check for psutil
+    if ! python -c "import psutil" &>/dev/null; then
+        echo "Installing psutil..."
+        pip install psutil
+    fi
+}
+
 # Build the C++ components if needed
 build_if_needed() {
     if [ $BUILD -eq 1 ]; then
@@ -168,6 +204,35 @@ run_app() {
     python src/main.py
 }
 
+# Run real-time processing tests
+run_realtime_tests() {
+    print_header "Running Real-Time Processing Tests"
+
+    VERBOSITY=""
+    if [ $VERBOSE -eq 1 ]; then
+        VERBOSITY="--verbose"
+    fi
+
+    echo "1. Running continuous audio processing tests..."
+    python -m tests.run_tests audio.test_continuous_processing $VERBOSITY
+    
+    echo
+    echo "2. Running continuous STT tests..."
+    python -m tests.run_tests stt.test_continuous_stt $VERBOSITY
+    
+    echo
+    echo "3. Running real-time pipeline integration tests..."
+    python -m tests.run_tests integration.test_realtime_pipeline $VERBOSITY
+}
+
+# Run stability test
+run_stability_test() {
+    print_header "Running Stability Test"
+    
+    echo "Running stability test for ${STABILITY_DURATION} seconds..."
+    python -m tests.stability_tests --duration=$STABILITY_DURATION --model=tiny
+}
+
 # Run tests
 run_tests() {
     print_header "Running Tests"
@@ -191,12 +256,20 @@ run_tests() {
         echo "Running integration tests (audio to STT)..."
         python -m tests.run_tests integration.test_audio_stt $VERBOSITY
     fi
+    
+    if [ $RUN_REALTIME_TESTS -eq 1 ]; then
+        run_realtime_tests
+    fi
+    
+    if [ $RUN_STABILITY_TEST -eq 1 ]; then
+        run_stability_test
+    fi
 
     if [ -n "$TEST_MODULE" ]; then
         echo "Running tests in module: $TEST_MODULE..."
         # Use our custom test runner
         python -m tests.run_tests $TEST_MODULE $VERBOSITY
-    elif [ $RUN_STT_TESTS -eq 0 ] && [ $RUN_STT_PERF_TESTS -eq 0 ] && [ $RUN_INTEGRATION_TESTS -eq 0 ]; then
+    elif [ $RUN_STT_TESTS -eq 0 ] && [ $RUN_STT_PERF_TESTS -eq 0 ] && [ $RUN_INTEGRATION_TESTS -eq 0 ] && [ $RUN_REALTIME_TESTS -eq 0 ] && [ $RUN_STABILITY_TEST -eq 0 ]; then
         echo "Running all tests..."
         # Use our custom test runner for all tests
         python -m tests.run_tests $VERBOSITY
@@ -218,6 +291,9 @@ main() {
 
     # Activate virtual environment
     activate_venv
+    
+    # Verify dependencies
+    verify_dependencies
 
     # Build if needed
     build_if_needed

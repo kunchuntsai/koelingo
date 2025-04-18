@@ -87,6 +87,62 @@ setup_venv() {
     echo "source venv/bin/activate"
 }
 
+# Verify test dependencies
+verify_test_deps() {
+    print_header "Verifying test dependencies"
+    
+    # Ensure we're in the virtual environment
+    source "venv/bin/activate"
+    
+    # Check for test dependencies
+    echo "Checking for test dependencies..."
+    python -c "import matplotlib" &>/dev/null || pip install matplotlib
+    python -c "import psutil" &>/dev/null || pip install psutil
+    
+    # Create a test runner script if it doesn't exist
+    if [ ! -f "run_tests.sh" ]; then
+        echo "Creating test runner script..."
+        cat > run_tests.sh << 'EOF'
+#!/bin/bash
+# run_tests.sh - Run all KoeLingo tests
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Set Python paths
+export PYTHONPATH=$(pwd):$PYTHONPATH
+
+# Run audio tests
+echo "======================================================================"
+echo "  Running Audio Processing Tests"
+echo "======================================================================"
+python -m tests.run_tests audio.test_continuous_processing --verbose
+
+# Run STT tests
+echo "======================================================================"
+echo "  Running Speech-to-Text Tests"
+echo "======================================================================"
+python -m tests.run_tests stt.test_continuous_stt --verbose
+
+# Run integration tests
+echo "======================================================================"
+echo "  Running Integration Tests"
+echo "======================================================================"
+python -m tests.run_tests integration.test_realtime_pipeline --verbose
+
+# Run stability test
+echo "======================================================================"
+echo "  Running Stability Tests"
+echo "======================================================================"
+python -m tests.stability_tests --duration=60
+EOF
+        chmod +x run_tests.sh
+    fi
+    
+    echo "Test dependencies verified."
+    echo "You can run tests with: ./run_tests.sh"
+}
+
 # Main function
 main() {
     print_header "KoeLingo Development Environment Setup"
@@ -105,6 +161,9 @@ main() {
 
     # Set up Python virtual environment
     setup_venv
+    
+    # Verify test dependencies
+    verify_test_deps
 
     print_header "Setup Complete"
     echo "KoeLingo development environment has been set up successfully."
@@ -112,6 +171,7 @@ main() {
     echo "Next steps:"
     echo "1. To build the C++ components: ./scripts/build.sh"
     echo "2. To run the application: ./scripts/run.sh"
+    echo "3. To run all tests: ./run_tests.sh"
 }
 
 # Run main function
